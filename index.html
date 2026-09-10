@@ -412,6 +412,23 @@
             .slider-box input[type="range"] { width: 70px; }
         }
 
+        /* 拖放上传提示层 */
+        .editor-pane.drag-over::after {
+            content: '松开以载入 Markdown 文件';
+            position: absolute;
+            inset: 0;
+            z-index: 60;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(74, 144, 226, 0.12);
+            border: 2px dashed var(--primary-color);
+            color: var(--primary-color);
+            font-size: 14px;
+            font-weight: 600;
+            pointer-events: none;
+        }
+
         /* 文件名输入与图标按钮 */
         .filename-box {
             display: flex;
@@ -524,7 +541,7 @@
 
     <main class="workspace" id="workspace">
         <!-- 左：编辑器 -->
-        <section class="pane">
+        <section class="pane editor-pane">
             <div class="pane-header">
                 <span class="title">Markdown 编辑</span>
                 <button class="mini-btn" onclick="wrapSel('**','**','加粗')" title="加粗 (Ctrl/Cmd+B)">B</button>
@@ -565,7 +582,9 @@
                 <label class="checkbox-item" style="margin-left:auto">
                     <input type="checkbox" id="syncScroll" checked> 滚动同步
                 </label>
+                <button class="mini-btn" onclick="document.getElementById('file-input').click()" title="上传并载入 .md 文件（也可直接拖入编辑区）">上传 MD</button>
                 <button class="mini-btn" onclick="saveMarkdown()" title="保存为 .md 文件（Ctrl/Cmd + S）">保存 MD</button>
+                <input type="file" id="file-input" accept=".md,.markdown,.mdown,.mkd,.txt,text/markdown,text/plain" style="display:none" onchange="handleFileSelect(event)">
             </div>
         </section>
 
@@ -659,7 +678,75 @@ $$
             updateStats();
             initSplitter();
             buildTablePicker();
+            initFileUpload();
         };
+
+        // ---------- 上传 / 拖放载入 Markdown ----------
+        const MD_FILE_RE = /\.(md|markdown|mdown|mkd|txt)$/i;
+
+        function initFileUpload() {
+            const pane = document.querySelector('.editor-pane');
+            if (!pane) return;
+
+            ['dragenter', 'dragover'].forEach(type => {
+                pane.addEventListener(type, ev => {
+                    ev.preventDefault();
+                    pane.classList.add('drag-over');
+                });
+            });
+
+            ['dragleave', 'dragend'].forEach(type => {
+                pane.addEventListener(type, ev => {
+                    if (!pane.contains(ev.relatedTarget)) pane.classList.remove('drag-over');
+                });
+            });
+
+            pane.addEventListener('drop', ev => {
+                ev.preventDefault();
+                pane.classList.remove('drag-over');
+                const dt = ev.dataTransfer;
+                if (dt && dt.files && dt.files.length) loadMarkdownFile(dt.files[0]);
+            });
+
+            // 拖到页面其它位置时，阻止浏览器直接打开文件
+            ['dragover', 'drop'].forEach(type => {
+                window.addEventListener(type, ev => {
+                    if (!pane.contains(ev.target)) ev.preventDefault();
+                });
+            });
+        }
+
+        function handleFileSelect(ev) {
+            const input = ev.target;
+            if (input.files && input.files.length) loadMarkdownFile(input.files[0]);
+            input.value = ''; // 允许重复选择同一文件
+        }
+
+        function loadMarkdownFile(file) {
+            if (!file) return;
+            if (!MD_FILE_RE.test(file.name || '') && !/text\/(markdown|plain|x-markdown)/i.test(file.type || '')) {
+                alert('仅支持 .md / .markdown / .txt 文件');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = () => {
+                editor.value = String(reader.result || '');
+                // 用文件名同步导出文件名（去掉扩展名）
+                const base = (file.name || '').replace(/\.[^.]+$/, '');
+                if (base) document.getElementById('filename').value = base;
+
+                updateGutter();
+                updateStats();
+                clearTimeout(timer);
+                timer = setTimeout(renderPreviewPages, 50);
+
+                const st = document.getElementById('export-status');
+                if (st) st.textContent = '已载入 ' + file.name + ' ✅';
+            };
+            reader.onerror = () => alert('文件读取失败：' + file.name);
+            reader.readAsText(file, 'utf-8');
+        }
 
         // ---------- 主题 ----------
         function initTheme() {
