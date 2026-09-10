@@ -1,0 +1,1339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown 转 PDF 工具</title>
+    <!-- 引入外部库 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- 数学公式支持 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --border-color: #e3e6ea;
+            --panel-bg: #ffffff;
+            --code-font: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            color: #333;
+            background-color: #f5f7fa;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ---------- 顶部工具栏 ---------- */
+        .toolbar {
+            flex: none;
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            flex-wrap: wrap;
+        }
+
+        .brand {
+            font-weight: 700;
+            font-size: 15px;
+            color: var(--primary-color);
+            white-space: nowrap;
+        }
+
+        .tool-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .slider-box {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #666;
+            white-space: nowrap;
+        }
+
+        .slider-box input[type="range"] { width: 90px; }
+
+        .slider-box b {
+            color: var(--primary-color);
+            min-width: 34px;
+            display: inline-block;
+            text-align: right;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 12px;
+            color: #666;
+            cursor: pointer;
+        }
+
+        .btn {
+            background-color: var(--primary-color);
+            color: #fff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .btn:hover { background-color: #357abd; }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .export-status {
+            font-size: 12px;
+            color: #888;
+            min-width: 150px;
+        }
+
+        /* ---------- 主体：左右对半 ---------- */
+        .workspace {
+            flex: 1;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: 50% 6px 1fr;
+        }
+
+        .pane {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            background: var(--panel-bg);
+            position: relative;
+        }
+
+        .pane-header {
+            flex: none;
+            height: 36px;
+            padding: 0 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border-bottom: 1px solid var(--border-color);
+            background: #fbfcfd;
+            font-size: 13px;
+            color: #555;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+
+        .pane-header .title { font-weight: 600; margin-right: 6px; }
+
+        .mini-btn {
+            border: 1px solid var(--border-color);
+            background: #fff;
+            color: #555;
+            border-radius: 4px;
+            padding: 3px 8px;
+            font-size: 12px;
+            cursor: pointer;
+            line-height: 1.4;
+        }
+
+        .mini-btn:hover { border-color: var(--primary-color); color: var(--primary-color); }
+
+        /* 插入表格面板（Word 风格行列选择器） */
+        .table-picker {
+            position: absolute;
+            z-index: 50;
+            display: none;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+            padding: 10px;
+        }
+
+        .table-picker.show { display: block; }
+
+        .tp-title {
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+            margin-bottom: 8px;
+            height: 16px;
+        }
+
+        .tp-grid {
+            display: grid;
+            grid-template-columns: repeat(10, 16px);
+            gap: 2px;
+        }
+
+        .tp-cell {
+            width: 16px;
+            height: 16px;
+            border: 1px solid #dfe3e8;
+            background: #fff;
+            cursor: pointer;
+        }
+
+        .tp-cell.active {
+            background: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+
+        .tp-custom {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px solid #eee;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .tp-custom input {
+            width: 46px;
+            padding: 2px 4px;
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            font-size: 12px;
+        }
+
+        .pane-header .spacer { flex: 1; }
+
+        /* 编辑区 */
+        .editor-wrap {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        #gutter {
+            flex: none;
+            padding: 12px 8px 12px 12px;
+            background: #f7f8fa;
+            border-right: 1px solid var(--border-color);
+            color: #b3b8bf;
+            text-align: right;
+            font-family: var(--code-font);
+            font-size: 13px;
+            line-height: 1.7;
+            white-space: pre;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #md-input {
+            flex: 1;
+            min-width: 0;
+            border: none;
+            outline: none;
+            resize: none;
+            padding: 12px 14px;
+            font-family: var(--code-font);
+            font-size: 13px;
+            line-height: 1.7;
+            /* 自动换行：长行按编辑器宽度折行，不出现横向滚动条 */
+            white-space: pre-wrap;
+            overflow-wrap: break-word;
+            word-break: break-word;
+            overflow-x: hidden;
+            overflow-y: scroll;
+            color: #24292f;
+            tab-size: 2;
+        }
+
+        /* 镜像容器：与编辑器同宽同字体，用于计算软换行后每行的真实视觉行数（保证行号对齐） */
+        #mirror {
+            position: absolute;
+            left: -20000px;
+            top: 0;
+            visibility: hidden;
+            font-family: var(--code-font);
+            font-size: 13px;
+            line-height: 1.7;
+            white-space: pre-wrap;
+            overflow-wrap: break-word;
+            word-break: break-word;
+        }
+
+        .pane-footer {
+            flex: none;
+            height: 28px;
+            padding: 0 12px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            border-top: 1px solid var(--border-color);
+            background: #fbfcfd;
+            font-size: 12px;
+            color: #888;
+        }
+
+        /* 拖拽分隔条 */
+        .splitter {
+            cursor: col-resize;
+            background: #e9edf2;
+            transition: background 0.15s;
+        }
+
+        .splitter:hover, .splitter.dragging { background: var(--primary-color); }
+        body.resizing { user-select: none; cursor: col-resize; }
+
+        /* 预览区 */
+        .preview-container {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            padding: 24px;
+            background-color: #e0e0e0;
+        }
+
+        #pdf-pages {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transform-origin: top center;
+        }
+
+        .page-card {
+            margin-bottom: 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .page-card .page-count {
+            margin-top: 6px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .pdf-page {
+            width: 210mm;
+            height: 297mm;
+            box-sizing: border-box;
+            overflow: hidden;
+            position: relative;
+            background-color: #fff;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        .pdf-page .page-number {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 6px;
+            text-align: center;
+            font-size: 12px;
+            color: #888;
+        }
+
+        /* 离屏测量容器：与页面内容区同宽 */
+        #measure-area {
+            position: absolute;
+            left: -20000px;
+            top: 0;
+            visibility: hidden;
+            padding: 0;
+        }
+
+        /* Markdown 样式 */
+        .markdown-body {
+            font-size: var(--global-font-size);
+            line-height: 1.6;
+            /* 内容自动适应页面宽度，长单词/长链接不溢出纸张 */
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+        }
+
+        .markdown-body table {
+            border-collapse: collapse;
+            width: 100%;
+            table-layout: fixed;
+            margin: 15px 0;
+            font-size: var(--table-font-size) !important;
+        }
+
+        .markdown-body table th,
+        .markdown-body table td {
+            border: 1px solid #ddd;
+            padding: var(--table-padding) !important;
+            text-align: left;
+            overflow-wrap: break-word;
+            word-break: break-word;
+        }
+
+        .markdown-body pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow-wrap: break-word;
+            background: #f6f8fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+
+        .markdown-body code { overflow-wrap: break-word; word-break: break-word; }
+        .markdown-body img { max-width: 100%; height: auto; }
+        .markdown-body blockquote { margin: 12px 0; padding-left: 12px; border-left: 4px solid #ddd; color: #666; }
+
+        .markdown-body table th { background-color: #f8f8f8; font-weight: bold; }
+
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 {
+            border-bottom: 1px solid #eee;
+            padding-bottom: 0.3em;
+        }
+
+        .markdown-body > :first-child { margin-top: 0; }
+        .markdown-body > :last-child { margin-bottom: 0; }
+
+        @media (max-width: 1100px) {
+            .slider-box input[type="range"] { width: 70px; }
+        }
+
+        /* 文件名输入与图标按钮 */
+        .filename-box {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .filename-box input {
+            width: 150px;
+            padding: 6px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 13px;
+            color: #333;
+        }
+
+        .btn-icon {
+            padding: 7px 10px;
+            font-size: 14px;
+            background: #fff;
+            color: #555;
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-icon:hover { background: #f0f2f5; }
+
+        /* ---------- 深色主题（纸张本身始终保持白色） ---------- */
+        html[data-theme="dark"] body { background-color: #1b1f24; color: #c9d1d9; }
+        html[data-theme="dark"] .toolbar,
+        html[data-theme="dark"] .pane { background: #22272e; border-color: #30363d; }
+        html[data-theme="dark"] .pane-header,
+        html[data-theme="dark"] .pane-footer { background: #1c2128; border-color: #30363d; color: #8b949e; }
+        html[data-theme="dark"] .pane-header .title { color: #c9d1d9; }
+        html[data-theme="dark"] #md-input { background: #0d1117; color: #c9d1d9; }
+        html[data-theme="dark"] #gutter { background: #161b22; color: #6e7681; border-color: #30363d; }
+        html[data-theme="dark"] .preview-container { background: #10151b; }
+        html[data-theme="dark"] .mini-btn { background: #21262d; color: #c9d1d9; border-color: #30363d; }
+        html[data-theme="dark"] .mini-btn:hover { border-color: var(--primary-color); color: var(--primary-color); }
+        html[data-theme="dark"] .slider-box,
+        html[data-theme="dark"] .checkbox-item,
+        html[data-theme="dark"] .export-status,
+        html[data-theme="dark"] .filename-box { color: #8b949e; }
+        html[data-theme="dark"] .btn-icon { background: #21262d; color: #c9d1d9; border-color: #30363d; }
+        html[data-theme="dark"] .btn-icon:hover { background: #30363d; }
+        html[data-theme="dark"] .filename-box input { background: #0d1117; color: #c9d1d9; border-color: #30363d; }
+        html[data-theme="dark"] .table-picker { background: #22272e; border-color: #30363d; }
+        html[data-theme="dark"] .tp-title { color: #8b949e; }
+        html[data-theme="dark"] .tp-cell { background: #0d1117; border-color: #30363d; }
+        html[data-theme="dark"] .tp-custom { border-color: #30363d; color: #8b949e; }
+        html[data-theme="dark"] .tp-custom input { background: #0d1117; color: #c9d1d9; border-color: #30363d; }
+        html[data-theme="dark"] .page-card .page-count { color: #8b949e; }
+        /* 纸张内文字保持深色，保证导出与预览一致 */
+        html[data-theme="dark"] .pdf-page,
+        html[data-theme="dark"] #measure-area { color: #24292f; background: #fff; }
+
+        /* 窄屏自动改为上下布局，两栏都自适应窗口宽度 */
+        @media (max-width: 900px) {
+            .workspace {
+                grid-template-columns: 1fr !important;
+                grid-template-rows: 1fr 6px 1fr;
+            }
+            .splitter { cursor: default; background: #e9edf2; }
+        }
+    </style>
+</head>
+<body>
+
+    <header class="toolbar">
+        <div class="brand">📄 MD → PDF</div>
+
+        <div class="tool-group">
+            <div class="slider-box">
+                <label for="fontSize">正文字号</label>
+                <input type="range" id="fontSize" min="10" max="30" value="13" oninput="updateStyles()">
+                <b id="val-fontSize">13px</b>
+            </div>
+            <div class="slider-box">
+                <label for="margin">页边距</label>
+                <input type="range" id="margin" min="0" max="100" value="50" oninput="updateStyles()">
+                <b id="val-margin">50px</b>
+            </div>
+            <div class="slider-box">
+                <label for="tableFontSize">表格字号</label>
+                <input type="range" id="tableFontSize" min="8" max="24" value="10" oninput="updateStyles()">
+                <b id="val-tableFontSize">10px</b>
+            </div>
+            <div class="slider-box">
+                <label for="tablePadding">表格间距</label>
+                <input type="range" id="tablePadding" min="0" max="30" value="3" oninput="updateStyles()">
+                <b id="val-tablePadding">3px</b>
+            </div>
+            <label class="checkbox-item">
+                <input type="checkbox" id="withPageNumber" onchange="updateStyles()"> 导出页码
+            </label>
+        </div>
+
+        <div class="tool-group" style="margin-left:auto">
+            <button class="btn btn-icon" id="btn-theme" onclick="toggleTheme()" title="切换深色 / 浅色主题">🌙</button>
+            <span class="filename-box">
+                <input type="text" id="filename" value="document" placeholder="文件名"
+                    onkeydown="if(event.key==='Enter'){event.preventDefault();downloadPDF();}" title="导出时使用的文件名">
+                <span>.pdf</span>
+            </span>
+            <span class="export-status" id="export-status">就绪</span>
+            <button class="btn" id="btn-export" onclick="downloadPDF()" title="导出 PDF（Ctrl/Cmd + Shift + S）">导出 PDF</button>
+        </div>
+    </header>
+
+    <main class="workspace" id="workspace">
+        <!-- 左：编辑器 -->
+        <section class="pane">
+            <div class="pane-header">
+                <span class="title">Markdown 编辑</span>
+                <button class="mini-btn" onclick="wrapSel('**','**','加粗')" title="加粗 (Ctrl/Cmd+B)">B</button>
+                <button class="mini-btn" onclick="wrapSel('*','*','斜体')" title="斜体 (Ctrl/Cmd+I)"><i>I</i></button>
+                <button class="mini-btn" onclick="linePrefix('## ')" title="二级标题">H2</button>
+                <button class="mini-btn" onclick="linePrefix('### ')" title="三级标题">H3</button>
+                <button class="mini-btn" onclick="linePrefix('> ')" title="引用">引用</button>
+                <button class="mini-btn" onclick="linePrefix('- ')" title="无序列表">列表</button>
+                <button class="mini-btn" onclick="orderedList()" title="有序列表">1.</button>
+                <button class="mini-btn" onclick="wrapSel('`','`','代码')" title="行内代码">代码</button>
+                <button class="mini-btn" onclick="insertInlineMath()" title="行内公式 $...$">$x$</button>
+                <button class="mini-btn" onclick="insertBlockMath()" title="独立公式 $$...$$">∑ 公式</button>
+                <button class="mini-btn" id="btn-table" onclick="toggleTablePicker(event)" title="插入表格（拖选行列）">表格 ▾</button>
+                <button class="mini-btn" onclick="insertBlock('---\n')" title="分割线">分割线</button>
+            </div>
+
+            <!-- 插入表格面板：拖动选择行列 -->
+            <div class="table-picker" id="table-picker">
+                <div class="tp-title" id="tp-title">插入表格</div>
+                <div class="tp-grid" id="tp-grid"></div>
+                <div class="tp-custom">
+                    自定义
+                    <input type="number" id="tp-rows" min="1" max="50" value="3"> 行
+                    <input type="number" id="tp-cols" min="1" max="20" value="3"> 列
+                    <button class="mini-btn" onclick="insertCustomTable()">插入</button>
+                </div>
+            </div>
+
+            <div class="editor-wrap">
+                <div id="gutter">1</div>
+                <textarea id="md-input" spellcheck="false"
+                    oninput="onEditorInput()" onscroll="syncFrom('editor')" onkeydown="onEditorKeyDown(event)"></textarea>
+            </div>
+
+            <div class="pane-footer">
+                <span id="stat-lines">1 行</span>
+                <span id="stat-chars">0 字符</span>
+                <label class="checkbox-item" style="margin-left:auto">
+                    <input type="checkbox" id="syncScroll" checked> 滚动同步
+                </label>
+                <button class="mini-btn" onclick="saveMarkdown()" title="保存为 .md 文件（Ctrl/Cmd + S）">保存 MD</button>
+            </div>
+        </section>
+
+        <!-- 分隔条 -->
+        <div class="splitter" id="splitter"></div>
+
+        <!-- 右：PDF 分页预览 -->
+        <section class="pane">
+            <div class="pane-header">
+                <span class="title">PDF 预览</span>
+                <span style="color:#888">A4 · 自动分页 · 所见即所得</span>
+                <span class="spacer"></span>
+                <span id="page-info" style="color:#888">共 1 页</span>
+            </div>
+            <div class="preview-container" id="preview-container" onscroll="syncFrom('preview')">
+                <div id="pdf-pages"></div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 离屏测量区：与 A4 页面内容区同宽 -->
+    <div id="measure-area" class="markdown-body" aria-hidden="true"></div>
+    <!-- 离屏镜像区：用于计算编辑器软换行后的行号 -->
+    <div id="mirror" aria-hidden="true"></div>
+
+    <script>
+        // 默认示例内容
+        const defaultText = `# 产品需求说明
+
+这是一份用 Markdown 撰写的示例文档，左侧编辑、右侧实时预览，**修改立即生效**。
+
+## 一、背景
+为了解决团队内文档格式不统一的问题，需要一个轻量的 Markdown 转 PDF 工具，
+要求：离线可用、样式可调、导出结果按 A4 自动分页。
+
+## 二、功能清单
+| 模块 | 描述 | 优先级 |
+| :--- | :--- | :--- |
+| 编辑器 | 支持快捷键、行号、实时预览 | P0 |
+| 样式调节 | 字号、页边距、表格样式 | P1 |
+| 自动分页 | 段落与表格不跨页截断 | P0 |
+| 导出 | 一键导出 A4 PDF | P0 |
+
+## 三、详细设计
+
+### 3.1 编辑区
+1. 左右对半布局，可拖拽调整宽度
+2. 支持 Ctrl/Cmd + B 加粗、Ctrl/Cmd + I 斜体
+3. 回车自动延续列表符号
+4. 底部显示行数与字符数
+
+### 3.2 预览区
+预览区按 A4 纸张（210 × 297mm）分页展示，页与页之间留有间距并显示页码。
+当某个段落或表格在剩余空间放不下时，会整体移动到下一页，不会被切断。
+
+### 3.3 导出
+导出时逐页截图并拼接为一个 PDF 文件，结果与预览完全一致。
+
+## 四、公式示例
+行内公式如 $E = mc^2$ 可直接在正文中使用；独立公式居中显示：
+
+$$
+x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
+$$
+
+## 五、排期
+- 第一周：编辑器与预览
+- 第二周：样式配置与分页算法
+- 第三周：导出与联调
+
+> 提示：试着在左侧增删内容，或拖动顶部滑块调整字号与页边距，
+> 右侧的分页会立即重新计算。`;
+
+        // ---------- 常量 ----------
+        const MM2PX = 96 / 25.4;   // 1mm ≈ 3.7795px
+        const A4_W_MM = 210;
+        const A4_H_MM = 297;
+        const PAGE_SAFETY = 2;     // 缓冲，避免舍入误差裁边
+
+        const editor = document.getElementById('md-input');
+        const gutter = document.getElementById('gutter');
+        const mirror = document.getElementById('mirror');
+        const preview = document.getElementById('preview-container');
+
+        editor.value = defaultText;
+
+        window.onload = () => {
+            initTheme();
+            updateStyles();
+            updateGutter();
+            updateStats();
+            initSplitter();
+            buildTablePicker();
+        };
+
+        // ---------- 主题 ----------
+        function initTheme() {
+            let saved = 'light';
+            try { saved = localStorage.getItem('md2pdf-theme') || 'light'; } catch (e) {}
+            applyTheme(saved);
+        }
+
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            const btn = document.getElementById('btn-theme');
+            if (!btn) return;
+            btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+            btn.title = theme === 'dark' ? '切换为浅色主题' : '切换为深色主题';
+        }
+
+        function toggleTheme() {
+            const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+            const next = cur === 'dark' ? 'light' : 'dark';
+            applyTheme(next);
+            try { localStorage.setItem('md2pdf-theme', next); } catch (e) {}
+        }
+
+        // 窗口或分栏宽度变化后，软换行结果和纸张缩放都要重算
+        let gutterTimer = null;
+        function scheduleGutter() {
+            clearTimeout(gutterTimer);
+            gutterTimer = setTimeout(() => {
+                updateGutter();
+                fitPreview();
+            }, 80);
+        }
+        window.addEventListener('resize', scheduleGutter);
+
+        // 预览纸张按栏宽自动缩放（仅影响显示；导出前会还原为 100%）
+        function fitPreview() {
+            const container = document.getElementById('preview-container');
+            const wrap = document.getElementById('pdf-pages');
+            wrap.style.transform = 'none';
+            wrap.style.marginBottom = '';
+
+            const cs = getComputedStyle(container);
+            const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+            const avail = container.clientWidth - pad;
+            const pageW = A4_W_MM * MM2PX;
+            const k = Math.min(1, avail / pageW);
+
+            if (k < 1) {
+                const fullHeight = wrap.scrollHeight;
+                wrap.style.transform = 'scale(' + k + ')';
+                wrap.style.marginBottom = '-' + Math.round(fullHeight * (1 - k)) + 'px';
+            } else {
+                wrap.style.transform = '';
+                wrap.style.marginBottom = '';
+            }
+        }
+
+        // ---------- 编辑器 ----------
+        let timer = null;
+        function onEditorInput() {
+            updateGutter();
+            updateStats();
+            clearTimeout(timer);
+            timer = setTimeout(renderPreviewPages, 150);
+            syncFrom('editor');
+        }
+
+        // 软换行下，一个逻辑行可能占多个视觉行；用镜像容器测量每行的真实视觉行数
+        function updateGutter() {
+            const lines = editor.value.split('\n');
+            const cs = getComputedStyle(editor);
+            const padL = parseFloat(cs.paddingLeft) || 0;
+            const padR = parseFloat(cs.paddingRight) || 0;
+            const lineHeight = parseFloat(cs.lineHeight) || 20;
+
+            mirror.style.width = Math.max(10, editor.clientWidth - padL - padR) + 'px';
+            mirror.innerHTML = '';
+            const rows = [];
+            lines.forEach((text, i) => {
+                const d = document.createElement('div');
+                d.textContent = text.length ? text : ' ';
+                mirror.appendChild(d);
+                const h = d.offsetHeight || lineHeight;
+                rows.push(Math.max(1, Math.round(h / lineHeight)));
+            });
+
+            const out = [];
+            lines.forEach((_, i) => {
+                out.push(String(i + 1));
+                for (let k = 1; k < rows[i]; k++) out.push('');
+            });
+
+            gutter.textContent = out.join('\n');
+            gutter.scrollTop = editor.scrollTop;
+        }
+
+        function updateStats() {
+            document.getElementById('stat-lines').textContent = editor.value.split('\n').length + ' 行';
+            document.getElementById('stat-chars').textContent = editor.value.length + ' 字符';
+        }
+
+        // 在光标处包裹选中内容
+        function wrapSel(before, after, placeholder) {
+            const s = editor.selectionStart, e = editor.selectionEnd;
+            const sel = editor.value.slice(s, e) || placeholder || '';
+            editor.setRangeText(before + sel + after, s, e, 'end');
+            if (!sel) {
+                editor.selectionStart = editor.selectionEnd = s + before.length;
+            }
+            editor.focus();
+            onEditorInput();
+        }
+
+        // 给选中的每一行加前缀（或切换）
+        function linePrefix(prefix) {
+            const s = editor.selectionStart, e = editor.selectionEnd;
+            const start = editor.value.lastIndexOf('\n', s - 1) + 1;
+            const end = editor.value.indexOf('\n', e);
+            const stop = end === -1 ? editor.value.length : end;
+            const block = editor.value.slice(start, stop);
+            const allPrefixed = block.split('\n').every(l => l.startsWith(prefix));
+            const next = block.split('\n')
+                .map(l => allPrefixed ? l.slice(prefix.length) : prefix + l)
+                .join('\n');
+            editor.setRangeText(next, start, stop, 'end');
+            editor.focus();
+            onEditorInput();
+        }
+
+        function orderedList() {
+            const s = editor.selectionStart, e = editor.selectionEnd;
+            const start = editor.value.lastIndexOf('\n', s - 1) + 1;
+            const end = editor.value.indexOf('\n', e);
+            const stop = end === -1 ? editor.value.length : end;
+            const lines = editor.value.slice(start, stop).split('\n');
+            const next = lines.map((l, i) => {
+                const clean = l.replace(/^\s*\d+\.\s+/, '');
+                return (i + 1) + '. ' + clean;
+            }).join('\n');
+            editor.setRangeText(next, start, stop, 'end');
+            editor.focus();
+            onEditorInput();
+        }
+
+        // ---------- 插入表格：Word 风格行列选择面板 ----------
+        const TP_ROWS = 8;
+        const TP_COLS = 10;
+
+        function buildTablePicker() {
+            const grid = document.getElementById('tp-grid');
+            grid.innerHTML = '';
+            for (let r = 1; r <= TP_ROWS; r++) {
+                for (let c = 1; c <= TP_COLS; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'tp-cell';
+                    cell.dataset.r = r;
+                    cell.dataset.c = c;
+                    grid.appendChild(cell);
+                }
+            }
+
+            grid.addEventListener('mouseover', ev => {
+                const cell = ev.target.closest('.tp-cell');
+                if (cell) highlightTable(+cell.dataset.r, +cell.dataset.c);
+            });
+
+            grid.addEventListener('mouseleave', () => {
+                clearHighlight();
+                document.getElementById('tp-title').textContent = '插入表格';
+            });
+
+            grid.addEventListener('click', ev => {
+                const cell = ev.target.closest('.tp-cell');
+                if (!cell) return;
+                insertMarkdownTable(+cell.dataset.r, +cell.dataset.c);
+            });
+        }
+
+        function highlightTable(r, c) {
+            document.querySelectorAll('#tp-grid .tp-cell').forEach(cell => {
+                const on = +cell.dataset.r <= r && +cell.dataset.c <= c;
+                cell.classList.toggle('active', on);
+            });
+            document.getElementById('tp-title').textContent = r + ' × ' + c + ' 表格';
+        }
+
+        function clearHighlight() {
+            document.querySelectorAll('#tp-grid .tp-cell').forEach(cell => cell.classList.remove('active'));
+        }
+
+        function toggleTablePicker(ev) {
+            ev.stopPropagation();
+            const picker = document.getElementById('table-picker');
+            if (picker.classList.contains('show')) { hideTablePicker(); return; }
+
+            const btn = document.getElementById('btn-table');
+            const pane = btn.closest('.pane');
+            const bRect = btn.getBoundingClientRect();
+            const pRect = pane.getBoundingClientRect();
+            picker.style.left = Math.max(4, bRect.left - pRect.left) + 'px';
+            picker.style.top = (bRect.bottom - pRect.top + 4) + 'px';
+            picker.classList.add('show');
+            clearHighlight();
+            document.getElementById('tp-title').textContent = '插入表格';
+        }
+
+        function hideTablePicker() {
+            const picker = document.getElementById('table-picker');
+            picker.classList.remove('show');
+            clearHighlight();
+        }
+
+        document.addEventListener('click', ev => {
+            const picker = document.getElementById('table-picker');
+            if (!picker || !picker.classList.contains('show')) return;
+            if (picker.contains(ev.target) || ev.target.closest('#btn-table')) return;
+            hideTablePicker();
+        });
+
+        document.addEventListener('keydown', ev => {
+            if (ev.key === 'Escape') hideTablePicker();
+        });
+
+        function insertCustomTable() {
+            const r = Math.max(1, parseInt(document.getElementById('tp-rows').value, 10) || 1);
+            const c = Math.max(1, parseInt(document.getElementById('tp-cols').value, 10) || 1);
+            insertMarkdownTable(r, c);
+        }
+
+        // 生成并插入 Markdown 表格（rows 含表头行，另含 1 行分隔行）
+        function insertMarkdownTable(rows, cols) {
+            const line = arr => '|' + arr.map(w => ' ' + w + ' ').join('|') + '|';
+            const head = line(Array.from({ length: cols }, (_, i) => '列' + (i + 1)));
+            const sep = line(Array.from({ length: cols }, () => '---'));
+            const body = [];
+            for (let r = 1; r < rows; r++) body.push(line(Array.from({ length: cols }, () => '')));
+
+            const pos = editor.selectionStart;
+            const needPre = pos > 0 && !editor.value.slice(0, pos).endsWith('\n');
+            const text = (needPre ? '\n' : '') + [head, sep].concat(body).join('\n') + '\n';
+
+            insertBlock(text);
+
+            // 选中首个表头文字，方便直接改写列名
+            const start = pos + text.indexOf('列1');
+            editor.selectionStart = start;
+            editor.selectionEnd = start + 2;
+            editor.focus();
+
+            hideTablePicker();
+        }
+
+        function insertBlock(text) {
+            const pos = editor.selectionStart;
+            editor.setRangeText(text, pos, pos, 'end');
+            editor.focus();
+            onEditorInput();
+        }
+
+        // ---------- 公式插入 ----------
+        function insertInlineMath() {
+            wrapSel('$', '$', 'MathFancy');
+        }
+
+        function insertBlockMath() {
+            const s = editor.selectionStart, e = editor.selectionEnd;
+            const sel = editor.value.slice(s, e) || 'MathFancy';
+            const before = editor.value.slice(0, s);
+            const after = editor.value.slice(e);
+
+            // 前置空行：公式块上方留出且仅留一个空行
+            let pre = '';
+            if (s > 0) {
+                if (!before.endsWith('\n')) pre = '\n\n';       // 结束当前行 + 空一行
+                else if (!before.endsWith('\n\n')) pre = '\n';  // 已在行首，补一个空行
+            }
+
+            // 后置空行：结束 $$ 行，并保证下方留出一个空行
+            let tail = '\n$$';
+            if (after.startsWith('\n\n')) tail += '';
+            else if (after.startsWith('\n')) tail += '\n';
+            else tail += '\n\n';
+
+            const text = pre + '$$\n' + sel + tail;
+            insertBlock(text);
+
+            // 选中公式内容，方便直接改写
+            const start = s + pre.length + 3; // '$$\n' 长度为 3
+            editor.selectionStart = start;
+            editor.selectionEnd = start + sel.length;
+            editor.focus();
+        }
+
+        // 回车自动延续列表；Tab 缩进；快捷键
+        function onEditorKeyDown(ev) {
+            const isMod = ev.metaKey || ev.ctrlKey;
+
+            if (isMod && ev.key.toLowerCase() === 'b') { ev.preventDefault(); wrapSel('**', '**', '加粗'); return; }
+            if (isMod && ev.key.toLowerCase() === 'i') { ev.preventDefault(); wrapSel('*', '*', '斜体'); return; }
+            if (isMod && ev.key.toLowerCase() === 'k') { ev.preventDefault(); wrapSel('[', '](https://)', '链接'); return; }
+            if (isMod && ev.key.toLowerCase() === 's') {
+                ev.preventDefault();
+                if (ev.shiftKey) downloadPDF();   // Ctrl/Cmd + Shift + S：导出 PDF
+                else saveMarkdown();              // Ctrl/Cmd + S：保存 .md
+                return;
+            }
+
+            if (ev.key === 'Tab') {
+                ev.preventDefault();
+                const s = editor.selectionStart, e = editor.selectionEnd;
+                if (s !== e && editor.value.slice(s, e).includes('\n')) {
+                    const start = editor.value.lastIndexOf('\n', s - 1) + 1;
+                    const next = editor.value.slice(start, e).split('\n').map(l => '  ' + l).join('\n');
+                    editor.setRangeText(next, start, e, 'end');
+                } else {
+                    editor.setRangeText('  ', s, e, 'end');
+                }
+                onEditorInput();
+                return;
+            }
+
+            if (ev.key === 'Enter' && editor.selectionStart === editor.selectionEnd) {
+                const pos = editor.selectionStart;
+                const lineStart = editor.value.lastIndexOf('\n', pos - 1) + 1;
+                const line = editor.value.slice(lineStart, pos);
+                const m = line.match(/^(\s*)([-*+]|\d+)(\.|\)|\s)\s+/);
+                if (!m) return;
+                let marker = '- ';
+                if (/\d/.test(m[2])) marker = (parseInt(m[2], 10) + 1) + '. ';
+                else if (m[2] === '*') marker = '* ';
+                else if (m[2] === '+') marker = '+ ';
+                ev.preventDefault();
+                // 空列表项回车则退出列表
+                const content = line.slice(lineStart === -1 ? 0 : m[0].length);
+                if (!content.trim()) {
+                    editor.setRangeText('\n', lineStart, pos, 'end');
+                } else {
+                    editor.setRangeText('\n' + m[1] + marker, pos, pos, 'end');
+                }
+                onEditorInput();
+            }
+        }
+
+        // 编辑区滚动时同步行号
+        editor.addEventListener('scroll', () => { gutter.scrollTop = editor.scrollTop; });
+
+        // ---------- 滚动同步 ----------
+        let syncing = false;
+        function syncFrom(source) {
+            if (!document.getElementById('syncScroll').checked || syncing) return;
+            const from = source === 'editor' ? editor : preview;
+            const to = source === 'editor' ? preview : editor;
+            const fromMax = from.scrollHeight - from.clientHeight;
+            const toMax = to.scrollHeight - to.clientHeight;
+            if (fromMax <= 0 || toMax <= 0) return;
+            syncing = true;
+            to.scrollTop = (from.scrollTop / fromMax) * toMax;
+            requestAnimationFrame(() => { syncing = false; });
+        }
+
+        // ---------- 拖拽调整分栏 ----------
+        function initSplitter() {
+            const splitter = document.getElementById('splitter');
+            const workspace = document.getElementById('workspace');
+            let dragging = false;
+
+            splitter.addEventListener('mousedown', ev => {
+                dragging = true;
+                splitter.classList.add('dragging');
+                document.body.classList.add('resizing');
+                ev.preventDefault();
+            });
+
+            window.addEventListener('mousemove', ev => {
+                if (!dragging || window.innerWidth <= 900) return;
+                const rect = workspace.getBoundingClientRect();
+                let pct = (ev.clientX - rect.left) / rect.width * 100;
+                pct = Math.min(80, Math.max(20, pct));
+                workspace.style.gridTemplateColumns = pct + '% 6px 1fr';
+                scheduleGutter();
+            });
+
+            window.addEventListener('mouseup', () => {
+                if (!dragging) return;
+                dragging = false;
+                splitter.classList.remove('dragging');
+                document.body.classList.remove('resizing');
+                updateGutter();
+                fitPreview();
+            });
+        }
+
+        // ---------- 样式 ----------
+        function updateStyles() {
+            const fontSize = document.getElementById('fontSize').value;
+            const margin = document.getElementById('margin').value;
+            const tableFontSize = document.getElementById('tableFontSize').value;
+            const tablePadding = document.getElementById('tablePadding').value;
+
+            document.getElementById('val-fontSize').innerText = fontSize + 'px';
+            document.getElementById('val-margin').innerText = margin + 'px';
+            document.getElementById('val-tableFontSize').innerText = tableFontSize + 'px';
+            document.getElementById('val-tablePadding').innerText = tablePadding + 'px';
+
+            const root = document.documentElement;
+            root.style.setProperty('--global-font-size', fontSize + 'px');
+            root.style.setProperty('--table-font-size', tableFontSize + 'px');
+            root.style.setProperty('--table-padding', tablePadding + 'px');
+
+            clearTimeout(timer);
+            timer = setTimeout(renderPreviewPages, 120);
+        }
+
+        // ---------- 分页算法 ----------
+        function buildPagePlan(els, tops, heights, pageH) {
+            const pages = [];
+            const n = els.length;
+            let s = 0;
+            while (s < n) {
+                const startTop = tops[s];
+                let j = s;
+                while (j < n) {
+                    if (j > s && tops[j] - startTop + heights[j] > pageH) break;
+                    j++;
+                }
+                if (j - s > 1 || heights[s] <= pageH) {
+                    pages.push({ kind: 'whole', start: s, end: j });
+                } else {
+                    pages.push({ kind: 'slice', idx: s });
+                }
+                s = j;
+            }
+            return pages;
+        }
+
+        // 超过一页的块切分为若干可见片段
+        function makeSlices(el, totalHeight, pageH) {
+            const slices = [];
+            let from = 0;
+            while (from < totalHeight - 0.5) {
+                const cap = Math.min(pageH, totalHeight - from);
+                const wrap = document.createElement('div');
+                wrap.style.cssText = 'height:' + cap + 'px;overflow:hidden;position:relative;';
+                const inner = el.cloneNode(true);
+                inner.style.marginTop = '-' + from + 'px';
+                wrap.appendChild(inner);
+                slices.push(wrap);
+                from += cap;
+            }
+            return slices;
+        }
+
+        function createPage(margin) {
+            const page = document.createElement('div');
+            page.className = 'pdf-page markdown-body';
+            page.style.padding = margin + 'px';
+            return page;
+        }
+
+        function createCard(page, index, total) {
+            const card = document.createElement('div');
+            card.className = 'page-card';
+            card.appendChild(page);
+            const label = document.createElement('div');
+            label.className = 'page-count';
+            label.textContent = '第 ' + index + ' / ' + total + ' 页';
+            card.appendChild(label);
+            return card;
+        }
+
+        // ---------- 渲染分页预览 ----------
+        function renderPreviewPages() {
+            const measure = document.getElementById('measure-area');
+            const pagesWrap = document.getElementById('pdf-pages');
+            const margin = Number(document.getElementById('margin').value) || 0;
+
+            // 1. 离屏测量：与 A4 内容区同宽
+            measure.style.width = (A4_W_MM * MM2PX - margin * 2) + 'px';
+
+            // 先把公式片段占位保护，避免 Markdown 把 _ * \ 等符号转义掉
+            // 注意：占位符必须是不含 HTML/Markdown 特殊字符的纯文本
+            // （不能用 \u0000，浏览器解析 innerHTML 时会把 NULL 替换成 U+FFFD）
+            const formulas = [];
+            const src = editor.value.replace(
+                /(\$\$[\s\S]+?\$\$)|(\$[^$\n]+?\$)|(\\\[[\s\S]+?\\\])|(\\\([^)\n]+?\\\))/g,
+                m => { formulas.push(m); return '@@MDFORMULA' + (formulas.length - 1) + '@@'; }
+            );
+
+            measure.innerHTML = marked.parse(src);
+
+            // 还原公式并用 KaTeX 渲染（必须在测量高度之前，保证分页计算准确）
+            if (formulas.length) {
+                measure.innerHTML = measure.innerHTML.replace(
+                    /@@MDFORMULA(\d+)@@/g,
+                    (_, i) => formulas[+i].replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                );
+                if (window.renderMathInElement) {
+                    renderMathInElement(measure, {
+                        delimiters: [
+                            { left: '$$', right: '$$', display: true },
+                            { left: '\\[', right: '\\]', display: true },
+                            { left: '$', right: '$', display: false },
+                            { left: '\\(', right: '\\)', display: false }
+                        ],
+                        throwOnError: false
+                    });
+                }
+            }
+
+            const mRect = measure.getBoundingClientRect();
+            const els = Array.from(measure.children).filter(e => e.nodeType === Node.ELEMENT_NODE);
+
+            pagesWrap.innerHTML = '';
+            if (!els.length) {
+                pagesWrap.appendChild(createCard(createPage(margin), 1, 1));
+                document.getElementById('page-info').textContent = '共 1 页';
+                fitPreview();
+                return;
+            }
+
+            const tops = [];
+            const heights = [];
+            els.forEach(el => {
+                const r = el.getBoundingClientRect();
+                tops.push(r.top - mRect.top);
+                heights.push(r.height);
+            });
+
+            // 2. 分页计划
+            const pageH = A4_H_MM * MM2PX - margin * 2 - PAGE_SAFETY;
+            const plan = buildPagePlan(els, tops, heights, pageH);
+
+            // 3. 构建预览
+            plan.forEach((p, idx) => {
+                const page = createPage(margin);
+                if (p.kind === 'slice') {
+                    makeSlices(els[p.idx], heights[p.idx], pageH).forEach(w => page.appendChild(w));
+                } else {
+                    for (let i = p.start; i < p.end; i++) {
+                        const c = els[i].cloneNode(true);
+                        if (i === p.start) c.style.marginTop = '0';
+                        page.appendChild(c);
+                    }
+                }
+                pagesWrap.appendChild(createCard(page, idx + 1, plan.length));
+            });
+
+            document.getElementById('page-info').textContent = '共 ' + plan.length + ' 页';
+            fitPreview();
+        }
+
+        // 读取并清洗文件名
+        function getFileName() {
+            const input = document.getElementById('filename');
+            let name = ((input && input.value) || '').trim();
+            name = name.replace(/[\\/:*?"<>|]/g, '_').replace(/\.pdf$/i, '').trim();
+            if (!name) name = 'document';
+            return name + '.pdf';
+        }
+
+        // 通用下载：手动触发 a[download]，确保使用指定文件名
+        function downloadBlob(blob, name) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = name;
+            a.rel = 'noopener';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+
+            if (typeof a.download === 'undefined') {
+                window.open(url, '_blank');
+            } else {
+                a.click();
+            }
+
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+                if (a.parentNode) a.parentNode.removeChild(a);
+            }, 1500);
+
+            return name;
+        }
+
+        // 手动生成 Blob 并触发下载，确保使用输入框中的文件名
+        function savePdfFile(pdf) {
+            const name = getFileName();
+            try {
+                pdf.setProperties({ title: name.replace(/\.pdf$/i, '') });
+            } catch (e) {}
+            return downloadBlob(pdf.output('blob'), name);
+        }
+
+        // ---------- 保存 Markdown 源文件 ----------
+        function getMarkdownFileName() {
+            return getFileName().replace(/\.pdf$/i, '') + '.md';
+        }
+
+        function saveMarkdown() {
+            const name = getMarkdownFileName();
+            const blob = new Blob([editor.value], { type: 'text/markdown;charset=utf-8' });
+            downloadBlob(blob, name);
+            const statusEl = document.getElementById('export-status');
+            if (statusEl) statusEl.textContent = '已保存 ' + name + ' ✅';
+        }
+
+        // ---------- 导出 PDF ----------
+        async function downloadPDF() {
+            const btn = document.getElementById('btn-export');
+            const statusEl = document.getElementById('export-status');
+            const pages = document.querySelectorAll('#pdf-pages .pdf-page');
+
+            if (!window.html2canvas || !window.jspdf) {
+                alert('依赖库未加载（html2canvas / jsPDF），请检查网络后重试');
+                return;
+            }
+            if (!pages.length) { alert('没有可导出的内容'); return; }
+
+            btn.disabled = true;
+            const addedNumbers = [];
+
+            // 导出前还原预览缩放，保证按 100% 原始尺寸截图
+            const wrap = document.getElementById('pdf-pages');
+            const savedTransform = wrap.style.transform;
+            const savedMargin = wrap.style.marginBottom;
+            wrap.style.transform = 'none';
+            wrap.style.marginBottom = '';
+
+            try {
+                if (document.getElementById('withPageNumber').checked) {
+                    pages.forEach((pg, i) => {
+                        const d = document.createElement('div');
+                        d.className = 'page-number';
+                        d.textContent = (i + 1) + ' / ' + pages.length;
+                        pg.appendChild(d);
+                        addedNumbers.push(d);
+                    });
+                }
+
+                // 等待字体（含 KaTeX 字体）加载完成，避免截图中公式缺字
+                if (document.fonts && document.fonts.ready) {
+                    try { await document.fonts.ready; } catch (e) {}
+                }
+
+                const pdfW = A4_W_MM / 25.4 * 72; // 595.28pt
+                const pdfH = A4_H_MM / 25.4 * 72; // 841.89pt
+                const pdf = new window.jspdf.jsPDF({
+                    orientation: 'portrait', unit: 'pt', format: 'a4', compress: true
+                });
+
+                for (let i = 0; i < pages.length; i++) {
+                    statusEl.textContent = '正在渲染 ' + (i + 1) + '/' + pages.length + ' 页…';
+                    await new Promise(r => setTimeout(r, 30));
+                    const canvas = await html2canvas(pages[i], {
+                        scale: 2, useCORS: true, backgroundColor: '#ffffff',
+                        logging: false, letterRendering: true
+                    });
+                    if (i > 0) pdf.addPage();
+                    pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, pdfW, pdfH);
+                }
+
+                statusEl.textContent = '正在写入 ' + getFileName() + ' …';
+                const savedName = savePdfFile(pdf);
+                statusEl.textContent = '已保存 ' + savedName + '（' + pages.length + ' 页）✅';
+            } catch (error) {
+                statusEl.textContent = '导出失败';
+                alert('导出失败: ' + error);
+            } finally {
+                addedNumbers.forEach(d => d.remove());
+                wrap.style.transform = savedTransform;
+                wrap.style.marginBottom = savedMargin;
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
