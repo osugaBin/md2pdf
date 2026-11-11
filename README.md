@@ -38,15 +38,15 @@ python3 -m http.server 8123
 
 ### 编辑快捷键
 
-| 快捷键 | 功能 |
-| :--- | :--- |
-| `Ctrl/Cmd + B` | 加粗 |
-| `Ctrl/Cmd + I` | 斜体 |
-| `Ctrl/Cmd + K` | 插入链接 |
-| `Ctrl/Cmd + S` | 保存 `.md` 文件 |
-| `Ctrl/Cmd + Shift + S` | 导出 PDF |
-| `Tab` | 缩进（选中多行可批量缩进） |
-| `Enter` | 自动延续列表（有序编号自动递增） |
+| 快捷键                    | 功能               |
+|:---------------------- |:---------------- |
+| `Ctrl/Cmd + B`         | 加粗               |
+| `Ctrl/Cmd + I`         | 斜体               |
+| `Ctrl/Cmd + K`         | 插入链接             |
+| `Ctrl/Cmd + S`         | 保存 `.md` 文件      |
+| `Ctrl/Cmd + Shift + S` | 导出 PDF           |
+| `Tab`                  | 缩进（选中多行可批量缩进）    |
+| `Enter`                | 自动延续列表（有序编号自动递增） |
 
 ## 🔧 自动分页原理
 
@@ -60,12 +60,12 @@ python3 -m http.server 8123
 
 ## 🛠 技术栈
 
-| 库 | 用途 |
-| :--- | :--- |
-| [marked](https://github.com/markedjs/marked) | Markdown 解析 |
-| [KaTeX](https://katex.org/) | 数学公式渲染 |
-| [html2canvas](https://html2canvas.hertzen.com/) | 页面截图 |
-| [jsPDF](https://github.com/parallax/jsPDF) | PDF 生成 |
+| 库                                               | 用途          |
+|:----------------------------------------------- |:----------- |
+| [marked](https://github.com/markedjs/marked)    | Markdown 解析 |
+| [KaTeX](https://katex.org/)                     | 数学公式渲染      |
+| [html2canvas](https://html2canvas.hertzen.com/) | 页面截图        |
+| [jsPDF](https://github.com/parallax/jsPDF)      | PDF 生成      |
 
 全部通过 CDN 引入，无构建步骤。
 
