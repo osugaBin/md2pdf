@@ -50,11 +50,16 @@
         flex: none;
         background: var(--panel-bg);
         border-bottom: 1px solid var(--border-color);
-        padding: 8px 16px;
+        padding: 8px 12px;
         display: flex;
         align-items: center;
-        gap: 18px;
+        gap: 12px;
         flex-wrap: wrap;
+      }
+
+      /* 不再显示「已载入 xxx ✅」等状态文字，避免长提示把工具栏挤成多行 */
+      #export-status {
+        display: none;
       }
 
       .brand {
@@ -67,21 +72,21 @@
       .tool-group {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 8px;
         flex-wrap: wrap;
       }
 
       .slider-box {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 5px;
         font-size: 12px;
         color: #666;
         white-space: nowrap;
       }
 
       .slider-box input[type="range"] {
-        width: 90px;
+        width: 70px;
       }
 
       .slider-box b {
@@ -104,7 +109,7 @@
         background-color: var(--primary-color);
         color: #fff;
         border: none;
-        padding: 8px 16px;
+        padding: 8px 12px;
         border-radius: 4px;
         cursor: pointer;
         font-size: 14px;
@@ -462,7 +467,7 @@
 
       @media (max-width: 1100px) {
         .slider-box input[type="range"] {
-          width: 70px;
+          width: 56px;
         }
       }
 
@@ -493,7 +498,7 @@
       }
 
       .filename-box input {
-        width: 150px;
+        width: 120px;
         padding: 6px 8px;
         border: 1px solid var(--border-color);
         border-radius: 4px;
@@ -707,6 +712,7 @@
         <button
           class="btn"
           id="btn-export"
+          style="display: none"
           onclick="downloadPDF()"
           title="导出高保真图片版 PDF，视觉与预览完全一致（Ctrl/Cmd + Shift + S）"
         >
@@ -1020,9 +1026,6 @@ $$
           updateStats();
           clearTimeout(timer);
           timer = setTimeout(renderPreviewPages, 50);
-
-          const st = document.getElementById("export-status");
-          if (st) st.textContent = "已载入 " + file.name + " ✅";
         };
         reader.onerror = () => alert("文件读取失败：" + file.name);
         reader.readAsText(file, "utf-8");
@@ -1444,14 +1447,12 @@ $$
         const from = source === "editor" ? editor : preview;
         const to = source === "editor" ? preview : editor;
         const rawFromMax = from.scrollHeight - from.clientHeight;
-        // 预览的滚动范围统一为"内容底部"：末页空白不参与联动，
-        // 空白区继续滚动时对方（编辑器）保持不动
-        const fromMax =
-          from === preview ? Math.max(contentMaxScroll(), 1) : rawFromMax;
+        // 预览的联动上界统一为"内容底部再回退两行"：同步到底时底部预留两行空白，
+        // 与左侧编辑器底部的操作栏占位对齐；末页空白仍不参与联动
+        const pvMax = syncMaxScroll();
+        const fromMax = from === preview ? Math.max(pvMax, 1) : rawFromMax;
         const toMax =
-          to === preview
-            ? contentMaxScroll()
-            : to.scrollHeight - to.clientHeight;
+          to === preview ? pvMax : to.scrollHeight - to.clientHeight;
         if (fromMax <= 0 || toMax <= 0) return;
         syncing = true;
         to.scrollTop = Math.min(toMax, (from.scrollTop / fromMax) * toMax);
@@ -1482,6 +1483,33 @@ $$
         }
         const lastBottom = (lr.bottom - pr.top) / (k || 1) + pv.scrollTop;
         return Math.max(0, lastBottom - pv.clientHeight);
+      }
+
+      // 预览纸张的缩放比（fitPreview 会等比缩放）
+      function previewScale() {
+        const wrap = document.getElementById("pdf-pages");
+        return wrap && wrap.offsetWidth
+          ? wrap.getBoundingClientRect().width / wrap.offsetWidth
+          : 1;
+      }
+
+      // 视觉上两行的高度：随字号滑块、预览缩放自适应
+      function syncTailGap() {
+        const page = document.querySelector("#pdf-pages .pdf-page");
+        const cs = getComputedStyle(page || document.body);
+        const fs = parseFloat(cs.fontSize) || 16;
+        const lh = parseFloat(cs.lineHeight);
+        return Math.round(
+          (lh > 0 ? lh : fs * 1.6) * 2 * (previewScale() || 1),
+        );
+      }
+
+      // 参与滚动联动的预览上界：内容底部再回退两行
+      function syncMaxScroll() {
+        const max = contentMaxScroll();
+        if (max <= 0) return 0;
+        // 内容较短时按比例缩小预留量，避免把可滚动范围压成 0
+        return Math.max(0, max - Math.min(syncTailGap(), max * 0.5));
       }
 
       // 重渲染后恢复预览滚动位置（临时抑制双向同步，避免编辑器滚动被牵连）
